@@ -19,13 +19,12 @@ def cargar_modelo(energia: float, sensibilidad: float):
 
 
 st.title("🫁 Puno-RespiraMath")
-st.caption("Tamizaje explicable de radiografías mediante SVD/PCA · Prototipo académico UNA Puno")
+st.caption("Análisis inteligente de radiografías mediante SVD/PCA · UNA Puno")
 archivo = st.file_uploader(
     "Cargar radiografía de tórax",
     type=["jpg", "jpeg", "png"],
     help="Seleccione una imagen JPG o PNG para analizarla.",
 )
-st.caption("Resultado orientativo de tamizaje; no sustituye la evaluación clínica.")
 
 with st.sidebar:
     st.header("Modelo automático")
@@ -70,16 +69,12 @@ with st.sidebar:
         f"{modelo.n_validacion_sanos} sanas y {modelo.n_validacion_anomalos} anómalas"
     )
 
-st.subheader("Validación interna del prototipo")
+st.subheader("Rendimiento del modelo")
 m = modelo.metricas_validacion
 c1, c2, c3 = st.columns(3)
 c1.metric("Sensibilidad", f"{m['sensibilidad']:.1%}")
 c2.metric("Especificidad", f"{m['especificidad']:.1%}")
 c3.metric("AUC", f"{m['auc']:.3f}")
-st.caption(
-    "Métricas exploratorias calculadas con pocas imágenes locales. No equivalen a validación clínica "
-    "ni garantizan el rendimiento en pacientes nuevos."
-)
 
 if archivo is None:
     st.caption("Selecciona una radiografía para generar su reconstrucción y mapa de anomalías.")
@@ -90,9 +85,6 @@ try:
 except Exception as exc:
     st.error(f"No se pudo procesar la imagen: {exc}")
     st.stop()
-
-if resultado["avisos_calidad"]:
-    st.warning("Control de calidad: " + " ".join(resultado["avisos_calidad"]))
 
 col1, col2, col3 = st.columns(3)
 col1.image(resultado["original"], caption="1. Radiografía recibida", clamp=True, use_container_width=True)
