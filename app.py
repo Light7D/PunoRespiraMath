@@ -1,79 +1,129 @@
-import streamlit as st
-import numpy as np
 import cv2
-import matplotlib.pyplot as plt
-from motor_svd import cargar_y_vectorizar_imagen, construir_subespacio_sano, evaluar_anomalia_svd
+import numpy as np
+import streamlit as st
 
-# Configuración de la página en Streamlit
-st.set_page_config(page_title="Puno-RespiraMath | UNA Puno", layout="wide")
+from motor_svd import construir_modelo_calibrado, evaluar_imagen, imagen_para_mostrar
+
+
+st.set_page_config(page_title="Puno-RespiraMath | UNA Puno", page_icon="🫁", layout="wide")
+
+
+@st.cache_resource(show_spinner=False)
+def cargar_modelo(energia: float, sensibilidad: float):
+    return construir_modelo_calibrado(
+        "dataset/sanos",
+        "dataset/prueba",
+        energia_objetivo=energia,
+        sensibilidad_objetivo=sensibilidad,
+    )
+
 
 st.title("🫁 Puno-RespiraMath")
-st.caption("Sistema de Tamizaje Pulmonar Mediante Descomposición en Valores Singulares (SVD)")
-st.markdown("---")
+st.caption("Tamizaje explicable de radiografías mediante SVD/PCA · Prototipo académico UNA Puno")
+st.warning(
+    "Esta herramienta no diagnostica tuberculosis. Una prioridad alta indica necesidad de revisión "
+    "y de pruebas clínicas, moleculares o microbiológicas confirmatorias."
+)
 
-# Barra lateral para parámetros matemáticos
-st.sidebar.header("⚙️ Parámetros del Modelo")
-k_comp = st.sidebar.slider("Número de Componentes Singulares (k)", min_value=5, max_value=50, value=15, step=5)
-umbral_tau = st.sidebar.number_input("Umbral de Alerta (Tau)", value=12.5, step=0.5)
+with st.sidebar:
+    st.header("Modelo automático")
+    st.write("El número de componentes y los umbrales se calculan a partir de los datos.")
+    with st.expander("Configuración avanzada"):
+        energia = st.slider(
+            "Energía acumulada objetivo",
+            0.80,
+            0.99,
+            0.95,
+            0.01,
+            help="El modelo elige automáticamente el menor k que conserva esta energía.",
+        )
+        sensibilidad = st.slider(
+            "Sensibilidad objetivo de tamizaje",
+            0.70,
+            1.00,
+            0.90,
+            0.05,
+            help="Prioriza evitar falsos negativos en el pequeño conjunto de validación disponible.",
+        )
 
-carpeta_sanos = "dataset/sanos"
-
-# Construcción o carga del subespacio sano Uk
 try:
-    with st.spinner("Construyendo subespacio ortonormal Uk mediante SVD..."):
-        Uk = construir_subespacio_sano(carpeta_sanos, k_componentes=k_comp)
-    st.sidebar.success(f"Subespacio Uk construido correctamente con k={k_comp}.")
-except Exception as e:
-    st.sidebar.error(f"Error al cargar dataset: {e}")
-    st.info("💡 **Instrucción:** Agrega algunas imágenes .jpg/.png en la carpeta `dataset/sanos/` para iniciar.")
+    with st.spinner("Entrenando y calibrando el subespacio normal..."):
+        modelo = cargar_modelo(energia, sensibilidad)
+except Exception as exc:
+    st.error(f"No se pudo construir el modelo: {exc}")
+    st.info("Verifica que existan imágenes en dataset/sanos y dataset/prueba.")
     st.stop()
 
-# Carga de la imagen del paciente
-st.subheader("📋 Evaluación de Paciente (Tamizaje en Tiempo Real)")
-archivo_subido = st.file_uploader("Seleccione o arrastre una radiografía de tórax (JPG/PNG)", type=["jpg", "png", "jpeg"])
+with st.sidebar:
+    st.success("Modelo calibrado")
+    st.metric("Componentes elegidos (k)", modelo.k)
+    st.metric("Energía conservada", f"{modelo.energia:.1%}")
+    st.write(f"Umbral bajo: `{modelo.tau_bajo:.4f}`")
+    st.write(f"Umbral alto: `{modelo.tau_alto:.4f}`")
+    st.caption(
+        f"Entrenamiento: {modelo.n_entrenamiento} sanas · Validación: "
+        f"{modelo.n_validacion_sanos} sanas y {modelo.n_validacion_anomalos} anómalas"
+    )
 
-if archivo_subido is not None:
-    # Guardar archivo temporal
-    ruta_temp = "temp_paciente.png"
-    with open(ruta_temp, "wb") as f:
-        f.write(archivo_subido.getbuffer())
-    
-    # Procesar imagen
-    A_test = cargar_y_vectorizar_imagen(ruta_temp)
-    
-    # Evaluar anomaía vía SVD y Norma de Frobenius
-    delta, A_reconstruida = evaluar_anomalia_svd(A_test, Uk)
-    
-    # Despliegue de Resultados Visuales
-   # Despliegue de Resultados Visuales
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        # Convertimos la matriz normalizada (0-1) a imagen de 8 bits (0-255) para Streamlit
-        st.image((A_test * 255).astype(np.uint8), caption="1. Radiografía Entrante (A_test)", use_container_width=True)
-    
-    with col2:
-        st.image((A_reconstruida * 255).astype(np.uint8), caption="2. Proyección sobre Subespacio Sano (P)", use_container_width=True)
-        
-    with col3:
-        # Residuo visual (Diferencia de geometrías) en mapa de calor usando OpenCV
-        residuo = np.abs(A_test - A_reconstruida)
-        residuo_norm = (residuo / np.max(residuo) * 255).astype(np.uint8) if np.max(residuo) > 0 else residuo.astype(np.uint8)
-        heatmap = cv2.applyColorMap(residuo_norm, cv2.COLORMAP_JET)
-        st.image(heatmap, caption="3. Mapa de Residuo / Invarianza", use_container_width=True)
-    st.markdown("---")
-    
-    # Despliegue de la Métrica Matematica y Diagnóstico de Alerta
-    m_col1, m_col2 = st.columns(2)
-    
-    with m_col1:
-        st.metric(label="Métrica de Desviación (Norma de Frobenius δ)", value=f"{delta:.4f}")
-        st.latex(r"\delta = || A_{test} - P ||_F")
-        
-    with m_col2:
-        if delta > umbral_tau:
-            st.error("🚨 **ALERTA DETECTADA: Se observan patrones anómalos fuera del subespacio sano.**")
-            st.warning("Prioridad: Derivar a Baciloscopía / Examen Clínico Preferencial.")
-        else:
-            st.success("✅ **PATRÓN NORMAL: La geometría matricial coincide con el subespacio de salud.**")
-            st.info("Sin anomalías geométricas detectadas por SVD.")
+st.subheader("Validación interna del prototipo")
+m = modelo.metricas_validacion
+c1, c2, c3 = st.columns(3)
+c1.metric("Sensibilidad", f"{m['sensibilidad']:.1%}")
+c2.metric("Especificidad", f"{m['especificidad']:.1%}")
+c3.metric("AUC", f"{m['auc']:.3f}")
+st.caption(
+    "Métricas exploratorias calculadas con pocas imágenes locales. No equivalen a validación clínica "
+    "ni garantizan el rendimiento en pacientes nuevos."
+)
+
+st.divider()
+st.subheader("Evaluación de una radiografía")
+archivo = st.file_uploader(
+    "Seleccione o arrastre una radiografía de tórax",
+    type=["jpg", "jpeg", "png"],
+)
+
+if archivo is None:
+    st.info("Carga una imagen para obtener su mapa de anomalías y prioridad de revisión.")
+    st.stop()
+
+try:
+    resultado = evaluar_imagen(archivo.getvalue(), modelo)
+except Exception as exc:
+    st.error(f"No se pudo procesar la imagen: {exc}")
+    st.stop()
+
+if resultado["avisos_calidad"]:
+    st.warning("Control de calidad: " + " ".join(resultado["avisos_calidad"]))
+
+col1, col2, col3 = st.columns(3)
+col1.image(resultado["original"], caption="1. Radiografía recibida", clamp=True, use_container_width=True)
+col2.image(
+    imagen_para_mostrar(resultado["reconstruida"], modelo.mascara),
+    caption="2. Reconstrucción desde el subespacio normal",
+    use_container_width=True,
+)
+residuo = resultado["residuo"]
+residuo_8 = (residuo / max(float(np.max(residuo)), 1e-8) * 255).astype(np.uint8)
+mapa = cv2.cvtColor(cv2.applyColorMap(residuo_8, cv2.COLORMAP_TURBO), cv2.COLOR_BGR2RGB)
+mapa[~modelo.mascara] = 0
+col3.image(mapa, caption="3. Mapa de anomalías dentro de la región pulmonar", use_container_width=True)
+
+st.divider()
+score = resultado["score"]
+prioridad = resultado["prioridad"]
+r1, r2 = st.columns([1, 2])
+r1.metric("Puntuación S(X)", f"{score:.4f}")
+with r2:
+    if prioridad == "Alta":
+        st.error("🚨 Prioridad alta: radiografía atípica; requiere evaluación adicional.")
+    elif prioridad == "Intermedia":
+        st.warning("⚠️ Prioridad intermedia: se recomienda revisión profesional.")
+    else:
+        st.success("Prioridad baja según este modelo, sin descartar evaluación clínica.")
+
+st.latex(r"S(X)=\frac{\|M\odot(X-\hat X)\|_F}{\sqrt{\sum_{i,j}M(i,j)}}")
+st.caption(
+    "La puntuación mide diferencia respecto del subespacio aprendido; puede aumentar por neumonía, "
+    "fibrosis, mala inspiración, artefactos u otras alteraciones, no únicamente por tuberculosis."
+)
