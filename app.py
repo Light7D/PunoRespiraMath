@@ -20,10 +20,12 @@ def cargar_modelo(energia: float, sensibilidad: float):
 
 st.title("🫁 Puno-RespiraMath")
 st.caption("Tamizaje explicable de radiografías mediante SVD/PCA · Prototipo académico UNA Puno")
-st.warning(
-    "Esta herramienta no diagnostica tuberculosis. Una prioridad alta indica necesidad de revisión "
-    "y de pruebas clínicas, moleculares o microbiológicas confirmatorias."
+archivo = st.file_uploader(
+    "Cargar radiografía de tórax",
+    type=["jpg", "jpeg", "png"],
+    help="Seleccione una imagen JPG o PNG para analizarla.",
 )
+st.caption("Resultado orientativo de tamizaje; no sustituye la evaluación clínica.")
 
 with st.sidebar:
     st.header("Modelo automático")
@@ -50,8 +52,11 @@ try:
     with st.spinner("Entrenando y calibrando el subespacio normal..."):
         modelo = cargar_modelo(energia, sensibilidad)
 except Exception as exc:
-    st.error(f"No se pudo construir el modelo: {exc}")
-    st.info("Verifica que existan imágenes en dataset/sanos y dataset/prueba.")
+    st.markdown("#### El modelo todavía no está disponible")
+    st.caption(
+        "Faltan las imágenes de referencia del repositorio. Deben existir al menos seis archivos "
+        "PNG o JPG dentro de `dataset/sanos`."
+    )
     st.stop()
 
 with st.sidebar:
@@ -76,15 +81,8 @@ st.caption(
     "ni garantizan el rendimiento en pacientes nuevos."
 )
 
-st.divider()
-st.subheader("Evaluación de una radiografía")
-archivo = st.file_uploader(
-    "Seleccione o arrastre una radiografía de tórax",
-    type=["jpg", "jpeg", "png"],
-)
-
 if archivo is None:
-    st.info("Carga una imagen para obtener su mapa de anomalías y prioridad de revisión.")
+    st.caption("Selecciona una radiografía para generar su reconstrucción y mapa de anomalías.")
     st.stop()
 
 try:
