@@ -1,0 +1,5 @@
+temp_paciente.png
+__pycache__/
+.streamlit/
+.venv/
+tmp/
