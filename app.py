@@ -1,8 +1,22 @@
 import cv2
 import numpy as np
 import streamlit as st
+from pathlib import Path
 
 from motor_svd import construir_modelo_calibrado, evaluar_imagen, imagen_para_mostrar
+
+
+EJEMPLOS = {
+    "Radiografías de apariencia sana": [
+        Path("ejemplos/Normal-3.png"),
+        Path("ejemplos/Normal-2036.png"),
+    ],
+    "Radiografías etiquetadas con TB": [
+        Path("ejemplos/Tuberculosis-26.png"),
+        Path("ejemplos/Tuberculosis-59.png"),
+        Path("ejemplos/Tuberculosis-71.png"),
+    ],
+}
 
 
 st.set_page_config(page_title="Puno-RespiraMath | UNA Puno", page_icon="🫁", layout="wide")
@@ -20,11 +34,51 @@ def cargar_modelo(energia: float, sensibilidad: float):
 
 st.title("🫁 Puno-RespiraMath")
 st.caption("Análisis inteligente de radiografías mediante SVD/PCA · UNA Puno")
-archivo = st.file_uploader(
-    "Cargar radiografía de tórax",
-    type=["jpg", "jpeg", "png"],
-    help="Seleccione una imagen JPG o PNG para analizarla.",
+
+st.subheader("Elige una radiografía")
+modo_entrada = st.radio(
+    "Fuente de la imagen",
+    ["Usar una radiografía lista", "Subir mi propia radiografía"],
+    horizontal=True,
+    label_visibility="collapsed",
 )
+
+datos_imagen = None
+
+if modo_entrada == "Usar una radiografía lista":
+    st.caption(
+        "Selecciona un caso listo para probar la aplicación. No necesitas descargarlo ni "
+        "cambiar su tamaño: el preprocesamiento se realiza automáticamente."
+    )
+    categoria = st.radio("Grupo de radiografías", list(EJEMPLOS), horizontal=True)
+    opciones = EJEMPLOS[categoria]
+    rutas_disponibles = [str(ruta) for ruta in opciones]
+
+    seleccion_actual = st.session_state.get("ejemplo_seleccionado")
+    if seleccion_actual not in rutas_disponibles:
+        seleccion_actual = rutas_disponibles[0]
+        st.session_state["ejemplo_seleccionado"] = seleccion_actual
+
+    columnas = st.columns(len(opciones))
+    for columna, ruta in zip(columnas, opciones):
+        with columna:
+            st.image(str(ruta), caption=ruta.stem, use_container_width=True)
+            etiqueta = "✓ Seleccionada" if str(ruta) == seleccion_actual else "Seleccionar"
+            if st.button(etiqueta, key=f"elegir_{ruta.stem}", use_container_width=True):
+                st.session_state["ejemplo_seleccionado"] = str(ruta)
+                st.rerun()
+
+    ruta_seleccionada = Path(st.session_state["ejemplo_seleccionado"])
+    datos_imagen = ruta_seleccionada.read_bytes()
+    st.success(f"Radiografía elegida: {ruta_seleccionada.stem}")
+else:
+    archivo = st.file_uploader(
+        "Arrastra aquí una radiografía de tórax o selecciónala desde tu dispositivo",
+        type=["jpg", "jpeg", "png"],
+        help="Puedes usar una imagen JPG o PNG; el sistema ajustará su tamaño automáticamente.",
+    )
+    if archivo is not None:
+        datos_imagen = archivo.getvalue()
 
 with st.sidebar:
     st.header("Modelo automático")
@@ -76,12 +130,12 @@ c1.metric("Sensibilidad", f"{m['sensibilidad']:.1%}")
 c2.metric("Especificidad", f"{m['especificidad']:.1%}")
 c3.metric("AUC", f"{m['auc']:.3f}")
 
-if archivo is None:
+if datos_imagen is None:
     st.caption("Selecciona una radiografía para generar su reconstrucción y mapa de anomalías.")
     st.stop()
 
 try:
-    resultado = evaluar_imagen(archivo.getvalue(), modelo)
+    resultado = evaluar_imagen(datos_imagen, modelo)
 except Exception as exc:
     st.error(f"No se pudo procesar la imagen: {exc}")
     st.stop()
